@@ -1,0 +1,67 @@
+#!/bin/sh
+
+# First option is a list 
+list=${1:-config}
+
+# >1 options we pass to EDIT
+# hdb-edit config +/key <- jump to key
+# hdb-edit config +     <- jump to end of file 
+shift
+edit_options=$*
+
+# use vi or EDITOR
+editor=${EDITOR:-vi}
+
+# default root
+hdbroot=${HDBROOT:-/var/db/hdb}
+
+# tmp file
+tmpfile=/tmp/hdb-edit-$$.tmp
+
+# show usage message on -h
+if [ "x$list" = "x-h" ]; then
+	echo "Usage: hdb-edit list"
+	exit 1
+fi
+
+# dump the file and make a copy for later cmp
+hdb-dump $list > $tmpfile.bim && cp $tmpfile.bim $tmpfile
+if [ $? -ne 0 ]; then
+	exit 1
+fi
+
+# invoke our editor
+$editor $tmpfile $edit_options
+if [ $? -ne 0 ]; then
+	exit 1
+fi
+
+# dump only output parent list. So we need to remove it when importing
+parentlist=$(dirname $list)
+
+
+# any changes made?
+
+# use diff to compare
+#diff -q $tmpfile.bim $tmpfile >/dev/null
+#if [ $? -eq 1 ]; then
+
+# use cmd to compare
+#cmp -s $tmpfile.bim $tmpfile
+#if [ $? -eq 1 ]; then
+
+# use md5sum to compare
+m1=$(cat $tmpfile.bim | md5sum)
+m2=$(cat $tmpfile | md5sum)
+if [ "x$m1" != "x$m2" ]; then
+	# TODO.. hdb-import should be able to handle the remove even though list is empty 
+	hdb -R $hdbroot -r $list  
+	hdb-import -r $hdbroot/$parentlist $tmpfile
+else
+	echo "No changes made"
+fi
+
+# remove tmpfile and quit
+rm $tmpfile $tmpfile.bim
+
+true

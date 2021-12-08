@@ -1,0 +1,44 @@
+#!/bin/sh
+
+
+if [ -z $HDBROOT ]; then
+	root=/var/db/hdb/
+else
+	root=$HDBROOT
+fi
+
+
+
+if [ "$1" == "-h" ]; then
+	echo "hdb-dump [-f|-s] [list]"
+	echo "  -f    dump in flat format (list/sublist/key=value)"
+	echo "  -s    dump in skv format (list/sublist/key;value)"
+	exit 1
+fi
+
+if [ "$1" == "-f" ]; then
+	flat=yes
+	shift
+elif [ "$1" == "-s" ]; then
+	skv=yes
+	shift
+fi
+if [ -z "$1" ]; then
+	list="."
+else
+	list=$1
+fi
+
+#this does not work.. gets expanded before entering sccript
+#list="$(echo $root$list)"
+#size=${#root}
+#list=${list:$size}
+
+if [ "$flat" == "yes"  ]; then
+	hdb -f $list
+elif [ "$skv" == "yes" ]; then
+	hdb -f $list | sed 's/=/;/'   
+else
+	hdb -x $list
+fi
+

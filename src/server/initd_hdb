@@ -1,0 +1,104 @@
+#! /bin/bash
+# /etc/rc.d/init.d script for HDBD 
+# chkconfig: 345 89 34
+# description: Hampus Database.
+
+. /etc/init.d/functions
+
+RETVAL=0
+prog="hdbd"
+
+restart() {
+	stop
+	start
+}
+
+reload() {
+	echo -n $"Syncing $prog: "
+    	killproc hdbd -HUP &>/dev/null
+    	RETVAL=$?
+	echo
+}
+
+start() {
+    echo -n $"Starting $prog: "
+    daemon /usr/bin/hdbd -t 20
+    RETVAL=$?
+    echo
+    [ $RETVAL -eq 0 ] && touch /var/lock/subsys/hdb
+    return $RETVAL
+}
+
+stop() {
+
+	pid=`pidofproc $prog`
+
+   	echo -n $"Stopping $prog: "
+
+	# fail if no hdbd is running already 
+	if [ -z "$pid" ]; then
+		RETVAL=1
+	else 
+		while [ -n "$pid" ]; do
+			# give sync 2 minutes
+        		if ((i++>1000)); then
+				echo -n $"sync failed" 
+				kill -SIGKILL $pid &>/dev/null 
+				usleep 100000
+				failure
+				echo
+				return 9 
+			else
+        			kill -SIGTERM $pid  
+        			RETVAL=$?
+        			usleep 100000
+			fi
+			pid=`pidofproc $prog`
+    		done
+	fi
+
+    	if [ $RETVAL -eq 0 ]; then
+		rm -f /var/lock/subsys/hdb
+		success
+	else
+		failure
+	fi
+	echo
+
+    	return $RETVAL
+}
+stat(){
+    status hdbd 
+    RETVAL=$?
+}
+
+
+case "$1" in 
+    start) 
+	start
+	;;
+    stop) 
+	stop 
+	;;
+    status) 
+	stat
+	;;
+    restart)
+	restart	
+	;;
+    reload)
+	reload
+	;;
+    condrestart)
+	if [ -f /var/lock/subsys/hdb ]; then
+	    stop
+	    start
+	    RETVAL=$?
+	fi
+	;;
+    *)
+        echo $"Usage: $0 {start|stop|restart|condrestart|reload|status}"
+        exit 1
+esac
+
+exit $RETVAL

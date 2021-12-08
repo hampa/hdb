@@ -1,0 +1,252 @@
+#!/bin/sh
+
+
+ret=0
+printstatus()
+{
+	case $? in
+		0) echo -n "PASS - " ;;
+		*) echo -n "FAIL - "
+		ret=1
+		;;
+	esac
+}
+
+
+dbroot="/tmp/tapir/hdb"
+dbroot2="/tmp/tapir2/hdb"
+grandparent="grandparent"
+parent="parent"
+child="child"
+
+if [ "$1" != "--run" ]; then
+	echo "hdb regression tester"
+        echo "Usage: hdb-test --run"
+	echo "Warning. This program will wipe all data in $dbroot and $dbroot2" 
+        exit 1
+fi
+
+echo "INFO - Running external tests (all hdb -h parameters) with hdb"
+
+#########################
+#
+test_wipe()
+{
+        echo "INFO - testing hdb -w"
+        hdb-set config/key value
+        hdb -w
+        ls $dbroot | grep -qE [a-z] && exit 1
+        hdb -w -R $dbroot2
+        ls $dbroot2 | grep -qE [a-z] && exit 1
+        echo "PASS - wipe worked"
+}
+
+
+#########################
+# Setup root
+
+export HDBROOT=$dbroot
+
+test_wipe
+
+#########################
+# Creating lists -c
+
+hdb -c $grandparent #2&>1 > /dev/null
+ls -lrt $dbroot/$grandparent/$grandparent.db > /dev/null
+printstatus
+echo "Creating list. Checking if list exist."
+
+hdb -c $grandparent/$parent #2&>1 > /dev/null
+ls -lrt $dbroot/$grandparent/$parent/$parent.db > /dev/null
+printstatus
+echo "Creating sublist to list. Checking if list exist."
+
+hdb -c $grandparent/$parent/$child #2&>1 > /dev/null
+ls -lrt $dbroot/$grandparent/$parent/$child/$child.db > /dev/null #2&>1 >  /dev/null
+printstatus
+echo "Creating sublist to sub list. Checking if list exist."
+
+hdb -r $grandparent/$parent
+ls -lrt $dbroot/$grandparent/$parent/$parent.db &>/dev/null && echo "FAIL - remove failed" && exit 1
+ls -lrt $dbroot/$grandparent/$grandparent.db &>/dev/null 
+printstatus
+echo "Removing list (-r)"
+
+
+#########################
+# Adding stuff (test for -l, -k, -s, -g)
+
+for i in 1 2 3 4 5 6 7 8 9 
+do
+	hdb -l $grandparent -k "key$i" -s "value$i" 2&>1 > /dev/null
+	if [ $? -ne "0" ]
+	then
+		echo "FAIL - failed to insert into database"
+        ret=1
+		exit;
+	fi
+done
+echo "PASS - inserted 9 items into database (-l,-s,-k)"
+
+# if the aformentioned test is changed. the md5sums need to be changed aswell
+hdb -p $grandparent | md5sum | grep -qs "d48746d8d351ab06e222d9bf4fc33bc5"
+printstatus
+echo "Print all values from list $grandparent (-p)"
+
+hdb -P $grandparent | md5sum | grep -qs "604ab0e7f9a7d240bee7055f501ddd69"
+printstatus
+echo "Print all values from list $grandparent with full path (-P)"
+
+#hdb -P $grandparent
+#exit
+
+for i in 1 2 3 4 5 6 7 8 9 
+do
+	value=`hdb -l $grandparent -g "key$i"`
+	if [ $? -ne "0" ]
+	then
+		echo "FAIL - failed to get items from database (list=$grandparent key=key$i, got=$value, retval=$?, HDBROOT=$HDBROOT)"
+		exit 1;
+	fi
+	if [ "$value" != "value$i" ]
+	then
+		echo "FAIL - failed to get items from the database. The values has changed!"	
+        	ret=1
+	fi
+done
+echo "PASS - getting the values with get_val (-g)"
+
+for i in 1 2 3 4 5 6 7 8 9 
+do
+	values=`hdb -l $grandparent -n $i`
+	if [ $? -ne "0" ]
+	then
+		echo "FAIL - failed to get items from database"
+        ret=1
+		exit;
+	fi
+	if [ "$values" != "key$i value$i" ]
+	then
+		echo "FAIL - failed to get items from the database. The values has changed!"	
+		echo "values=$values#"
+		echo "compar=key$i value$i#"
+
+	fi
+done
+
+echo "PASS - getting the values with recno (-n)"
+
+##########################################
+#deleting values from database
+
+for i in 1 2 3 4 5 6 7 8 9 
+do
+	values=`hdb -ql $grandparent -d "key$i"`
+	if [ $? -ne "0" ]
+	then
+		echo "FAIL - failed to delete key key$i from database"
+        ret=1
+		exit 1 
+	fi
+	hdb -ql $grandparent -g "key$i"
+	if [ $? -eq "0" ]
+	then
+		echo "FAIL - element with key key$i is not deleted"
+        ret=1
+		exit 1
+	fi
+done
+echo "PASS - deleting keys from database (-d)"
+
+############################
+# Test for error codes
+############################
+
+#TODO
+hdb -r emptylist
+hdb -c emptylist
+hdb -p emptylist
+cmdret=$?
+if [ $cmdret -ne "4" ]; then
+	echo "FAIL - -p on empty list did not return error 4 (got $cmdret)"
+	ret=1
+else
+	echo "PASS - -p on empty list returned error 4"
+fi
+
+#just to make sure.. remove it first
+hdb -r voidlist 
+hdb -p voidlist 
+cmdret=$?
+if [ $cmdret -ne "5" ]; then
+	echo "TODO - -p on non-existant list did not return error 5 (got $cmdret)"
+	#ret=1
+else
+	echo "PASS - -p on non-existant list did return error 5"
+fi
+
+############################
+#overwriting values
+
+hdb -l $grandparent/$parent -k "key1" -s "oldvalue" 
+printstatus 
+echo "inserting value into $grandparent/$parent"
+hdb -l $grandparent/$parent -k "key1" -s "newvalue" 
+printstatus 
+echo "Adding value twice returned OK"
+value=`hdb -l $grandparent/$parent -g "key1"`
+if [ "$value" == "newvalue" ]
+then
+	echo "PASS - adding new value overwrites the old value"
+else
+	echo "FAIL - adding new value does not overwrite the old value"
+    ret=1
+fi
+
+##############################################################
+# Testing -L, -S, -Z, -N
+
+test_wipe
+
+for i in 0 1 2 3 4 5 6 7 8 9
+do
+	hdb -c list/list$i/sublist$i
+	if [ $? -ne "0" ]
+	then
+		echo "FAIL - failed to create list"
+        	ret=1
+		exit 1 
+	fi
+done
+
+hdb-set aaa/key value
+hdb-set bbb/key value
+hdb-set xxx/key value
+hdb-set yyy/key value
+hdb-set zzz/key value
+
+# We want this alpha sorted
+hdb -L | md5sum | grep -qs "6fc452c8fa88ca7ae892eb4bfa5d5363"
+printstatus
+echo "Print list of lists (-L)"
+
+hdb -S list | md5sum | grep -qs "67abbab4057373491fddd7c48afb3dc4"
+printstatus
+echo "Print sublist of lists (-S)"
+
+hdb -Z list | md5sum | grep -qs "921a9f90583de27e8275b20741fd26c3"
+printstatus
+echo "Print sublist of lists with full path. (-Z)"
+
+hdb -N list | grep -qs "10"
+printstatus
+echo "Print number fo elements in this sublist. (-N)"
+
+if [ $ret -eq 0 ]; then
+	echo "PASS - All tests passed"
+else
+	echo "FAIL - One or more tests failed"
+fi
+ 
+exit $ret

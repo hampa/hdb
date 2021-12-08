@@ -1,0 +1,217 @@
+AC_INIT(README)
+AM_INIT_AUTOMAKE(hdb,1.0.1)
+# lib stuff
+LIB_CURRENT=1
+LIB_REVISION=0
+LIB_AGE=0
+
+AC_PROG_CC
+AC_PROG_INSTALL
+#AC_CONFIG_HEADERS([ src/include/hdb.h src/include/hdbd.h ])
+
+dnl We use a path for perl so the script startup works
+AC_PATH_PROG(PERL5, perl5, no)
+AC_PATH_PROG(PERL, perl, no)
+if test "$PERL5" != no
+then
+  PERL=$PERL5
+  ac_cv_path_PERL=$ac_cv_path_PERL5
+fi
+AC_SUBST(PERL)
+AC_SUBST(PERL5)
+
+
+AC_ARG_ENABLE(debugging,
+[  --enable-debugging             Outputs extra debugging information at all
+                                  times.  Normally, you should not enable this,
+                                  but instead use the -D flag of the commands,
+                                  which toggles debbuging output at runtime.
+  --disable-debugging             Disallows debugging code to be built in.
+                                  This might provide some speed benefits.],
+    AC_DEFINE(DEBUG))
+
+AC_ARG_ENABLE(triggers,
+[  --enable-triggers              Turns on triggers.],
+    triggers=yes)
+
+AC_ARG_ENABLE(hdb_network_switch,
+[  --enable-hdb-network-switch    Turn on switching between net and light.],
+    hdb_network_switch="yes")
+
+AC_ARG_WITH(hdb-network,
+[  --without-hdb-network          No network database. For embedded systems.])
+AM_CONDITIONAL(WITHOUT_HDB_NETWORK, test x$with_hdb_network = xno)
+
+AC_ARG_WITH(default_list,
+[  --with-default-list=\"config\"     Default list to dump or import data.
+                                    (Default: config)],
+    [DEFAULT_LIST="$with_default_list"
+    AC_DEFINE_UNQUOTED(DEFAULT_LIST,"$with_default_list")])
+
+AC_ARG_WITH(static,
+[  --with-static                Static compilation.])
+
+
+AC_ARG_WITH(bdb_locking,
+[  --with-bdb-locking 		Use Sleepycat bdb locking. Only avail with db3 or db4.])
+
+AC_ARG_WITH(bdb_enviroment,
+[  --with-bdb-enviroment        Use Sleepycat bdb enviroment. Only avail with db3 or db4. Automatic with bdb-locking. ])
+
+AC_ARG_WITH(bdb_enviroment,
+[  --with-linuxthreads 		Force linuxthreads lib as threds lib. Otherwise getconf GNU_LIBPTHREAD_VERSION is used])
+
+AC_ARG_WITH(db1,
+[  --with-db1			Force use backend to db1])
+
+AC_ARG_WITH(db3,
+[  --with-db3			Force use backend to db3])
+
+AC_ARG_WITH(db4,
+[  --with-db4			Force use backend to db4])
+
+
+#shall we build perl stuff.
+AC_ARG_WITH(perl,
+    [  --without-perl           Skip building of perl stuff],
+    [with_perl=$withval],
+    [with_perl=yes]
+)
+
+if test "$PERL" != no -a "$with_perl" = "yes"
+then
+  # check for perl5
+  if $PERL -v | grep "5" > /dev/null
+  then
+    perl_dirs="src/perl"
+  else
+    AC_MSG_WARN([HDB perl support will not be built since perl is not version 5])
+    perl_dirs=""
+  fi
+else
+  if test "$PERL" = no -a "$with_perl" = "yes"
+  then
+    AC_MSG_WARN([HDB perl support will not be built since perl was not found])
+  fi
+  perl_dirs=
+fi
+AC_SUBST(perl_dirs)
+
+
+dnl debug output 
+echo "with_hdb_network = $with_hdb_network"
+echo "without_hdb_network = $without_hdb_network"
+echo "hdb-network-switch = $hdb_network_switch"
+echo "default_list = $default_list" 
+echo "with_default_list = $with_default_list" 
+echo "triggers = $triggers"
+echo "with_static = $with_static"
+echo "debug $DEBUG";
+echo "debuggin $enable_debugging";
+echo "with_bdb_locking = $with_bdb_locking";
+echo "with_db = $with_db1, $with_db3, $with_db4";
+echo "with_bdb_enviroment $with_bdb_enviroment";
+echo "with_linuxthreads $with_linuxthreads";
+
+if test "x$with_db1" = "xyes"; then
+	cppflags="-DDB1"
+elif test "x$with_db3" = "xyes"; then
+	cppflags="-I/usr/include/db3 -DDB3"
+elif test "x$with_db4" = "xyes"; then
+	cppflags="-I/usr/include/db4 -DDB4"
+#NOT with-db specifyed.. choose highest available
+elif test -f "/usr/include/db4/db.h"; then
+	echo "found db4 in /usr/include/db4"
+	cppflags="-I/usr/include/db4 -DDB4"
+elif test -f "/usr/include/db3/db.h"; then
+	echo "found db3 in /usr/include/db3"
+	cppflags="-I/usr/include/db3 -DDB3"
+elif test -f "/usr/include/db3/db_185.h"; then
+	echo "found db_185.h in /usr/include/db3/"
+	cppflags="-I/usr/include/db3"
+elif test ! -f "/usr/include/db_185.h"; then
+	AC_MSG_ERROR(could not find BerkleyDB in any include directories.)
+fi
+
+if test "x$enable_debugging" = "xyes"; then
+	cflags="-ggdb"
+fi
+
+if test "x$with_network_switch" = "xyes"; then
+	cppflags="$cppflags -DHDB_NET_SWITCH"
+fi
+
+if test "x$with_hdb_network" != "xno" ; then
+	hdbd_cppflags="-DHDBD"
+	cmdprefix="nhdb"
+else
+	cmdprefix="lhdb"
+fi
+
+if test "x$with_linuxthreads" = "xyes"; then
+	hdbd_cppflags="$hdbdflags -DHAVE_LINUXTHREADS"
+	echo "INFO - Using old LinuxThreads library" 
+else
+	getconf GNU_LIBPTHREAD_VERSION|grep NPTL 2>/dev/null
+	if test $? -eq 0; then
+		hdbd_cppflags="$hdbdflags -DHAVE_NPTL"
+		echo "INFO - Using Native POSIX Thread Library NPTL"
+	else
+		hdbd_cppflags="$hdbdflags -DHAVE_LINUXTHREADS"
+		echo "INFO - Using old LinuxThreads library" 
+	fi
+fi
+
+if test "x$with_bdb_locking" = "xyes"; then
+	cppflags="$cppflags -DWITH_BDB_LOCKING"
+	with_bdb_enviroment="yes"
+fi
+
+if test "x$with_bdb_enviroment" = "xyes"; then
+	cppflags="$cppflags -DWITH_BDB_ENVIROMENT"
+fi
+
+dnl if test "x$with_static" = "xyes"; then
+dnl	targets="shdb-import shdb-filter shdb"
+dnl else 
+dnl	targets="hdb-import hdb-filter hdb"
+dnl fi
+
+targets="$targets lhdb lhdb-import lhdb-filter lhdb-query lhdb-find lhdb-del lhdb-set lhdb-cut"
+if test "x$with_hdb_network" != "xno"; then
+	targets="$targets hdbd nhdb-import nhdb-filter nhdb-query nhdb nhdb-find nhdb-set nhdb-cut" 	
+	install="install-lib install-common install-perl install-service install-network"
+else
+	install="install-light"
+	echo "Network support is disabled"
+fi
+
+# lib stuff
+AC_SUBST(LIB_CURRENT)
+AC_SUBST(LIB_REVISION)
+AC_SUBST(LIB_AGE)
+
+# variables
+AC_SUBST(TARGETS, $targets)
+AC_SUBST(LIBDFLAGS, $libdflags)
+AC_SUBST(HDBD_CPPFLAGS, $hdbd_cppflags)
+AC_SUBST(CMDDFLAGS, $cmddflags)
+AC_SUBST(CMDPREFIX, $cmdprefix)
+CPPFLAGS="$cppflags -I\$(top_srcdir)/src/include -I\$(top_srcdir)/src/lib"
+LDFLAGS="-L\$(top_srcdir)/src/lib"
+
+AC_PROG_LIBTOOL
+
+AC_OUTPUT([
+Makefile
+src/Makefile
+src/include/Makefile
+src/lib/Makefile
+src/apps/Makefile
+src/server/Makefile
+src/test/Makefile
+src/docs/Makefile
+src/docs/man/Makefile
+src/perl/Makefile
+])
+

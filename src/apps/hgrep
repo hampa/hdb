@@ -1,0 +1,9 @@
+#!/bin/sh
+
+if [ "$#" = 0 ]; then
+	echo "Usage: $0 [grep options] value"
+	exit 1
+fi
+
+hdb-dump | grep -E $*
+
